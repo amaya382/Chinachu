@@ -14,7 +14,7 @@
 			
 			if (request.type === 'm2ts') {
 				response.setHeader('content-length', fstat.size);
-				response.setHeader('content-disposition', 'attachment; filename="' + program.id + '.m2ts"');
+				response.setHeader('content-disposition', 'attachment; filename="' + program.id + program.recorded.match(/\.[^\.]+?$/)[0] + '"; filename*=UTF-8\'\'' +  encodeURI(program.recorded.match(/\/[^\/]+?$/)[0].substr(1)));
 				response.head(200);
 
 				fs.createReadStream(program.recorded).pipe(response);

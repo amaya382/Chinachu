@@ -190,7 +190,7 @@ function main(avinfo) {
 				args.push("-hwaccel_output_format", "yuv420p");
 			}
 
-			args.push('-i', 'pipe:0');
+			args.push('-i', program.recorded);
 
 			if (d.t) { args.push('-t', d.t); }
 
@@ -262,13 +262,11 @@ function main(avinfo) {
 
 			args.push('-y', '-f', d.f, 'pipe:1');
 
-			var readStream = fs.createReadStream(program.recorded, range || {});
-
-			request.on('close', function() {
-				readStream.destroy();
-			});
-
 			if (d['c:v'] === 'copy' && d['c:a'] === 'copy' && !d.t) {
+				var readStream = fs.createReadStream(program.recorded, range || {});
+				request.on('close', function() {
+					readStream.destroy();
+				});
 				readStream.pipe(response);
 			} else {
 				var ffmpeg = child_process.spawn('ffmpeg', args);
@@ -276,8 +274,6 @@ function main(avinfo) {
 				util.log('SPAWN: ffmpeg ' + args.join(' ') + ' (pid=' + ffmpeg.pid + ')');
 
 				ffmpeg.stdout.pipe(response);
-
-				readStream.pipe(ffmpeg.stdin);
 
 				ffmpeg.stderr.on('data', function(d) {
 					util.log('#ffmpeg: ' + d);

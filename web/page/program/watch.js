@@ -306,6 +306,10 @@ P = Class.create(P, {
 						val: "h264",
 						items: [
 							{
+								label: '無変換',
+								value: 'copy'
+							},
+							{
 								label: 'H.264',
 								value: 'h264'
 							}
@@ -339,6 +343,25 @@ P = Class.create(P, {
 					},
 					depends: [
 						{ key: 'ext', val: 'm2ts' }
+					]
+				},
+				{
+					pointer: '/c:a',
+					label: '音声コーデック',
+					input: {
+						type: 'radios',
+						isRequired: true,
+						val: set['c:a'],
+						items: [
+							{
+								label: '無変換',
+								value: 'copy'
+							}
+						]
+					},
+					depends: [
+						{ key: 'ext', val: 'm2ts', op: '!==' },
+						{ pointer: '/c:v', val: 'copy' }
 					]
 				},
 				{
