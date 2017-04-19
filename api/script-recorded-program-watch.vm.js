@@ -109,58 +109,12 @@ function main(avinfo) {
 				bitrate = videoBitrate + audioBitrate;
 			}
 
-			// Caluculate Total Size
-			var isize    = parseInt(avinfo.format.size, 10);
-			var ibitrate = parseFloat(avinfo.format.bit_rate);
-			var tsize    = 0;
-			if (bitrate === 0) {
-				bitrate = ibitrate;
-				tsize = isize;
-			} else {
-				tsize = bitrate / 8 * parseFloat(avinfo.format.duration);
-			}
-			if (d.t) {
-				tsize = tsize / parseFloat(avinfo.format.duration) * parseInt(d.t, 10);
-			} else {
-				tsize -= bitrate / 8 * (parseInt(d.ss, 10) - 2);
-			}
-			tsize = Math.floor(tsize);
-
 			if (request.query.mode == 'download') {
 				var pi = path.parse(program.recorded);
 				response.setHeader('Content-disposition', 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(pi.name + '.' + request.query.ext));
 			}
 
-			// Ranges Support
-			var range = {
-				start: parseInt(ibitrate / 8 * (parseInt(d.ss, 10) - 2), 10)
-			};
-
-			if (request.type === 'm2ts') {
-				if (request.headers.range) {
-					var bytes = request.headers.range.replace(/bytes=/, '').split('-');
-					var rStart = parseInt(bytes[0], 10);
-					var rEnd   = parseInt(bytes[1], 10) || tsize - 2;
-
-					range.start = Math.round(rStart / bitrate * ibitrate);
-					range.end   = Math.round(rEnd / bitrate * ibitrate);
-					if (range.start > isize || range.end > isize) {
-						return response.error(416);
-					}
-
-					response.setHeader('Content-Range', 'bytes ' + rStart + '-' + rEnd + '/' + tsize);
-					response.setHeader('Content-Length', rEnd - rStart + 1);
-
-					response.head(206);
-				} else {
-					response.setHeader('Accept-Ranges', 'bytes');
-					response.setHeader('Content-Length', tsize);
-
-					response.head(200);
-				}
-			} else {
-				response.head(200);
-			}
+			response.head(200);
 
 			switch (request.type) {
 				case 'm2ts':
@@ -190,22 +144,25 @@ function main(avinfo) {
 				args.push("-hwaccel_output_format", "yuv420p");
 			}
 
+			args.push('-ss', d.ss);
 			args.push('-i', program.recorded);
 
 			if (d.t) { args.push('-t', d.t); }
 
 			args.push('-threads', '0');
 
-			if (config.vaapiEnabled === true) {
-				let scale = "";
-				if (d.s) {
-					let [width, height] = d.s.split("x");
-					scale = `,scale_vaapi=w=${width}:h=${height}`;
+			if (!(d['c:v'] === 'copy' && d['c:a'] === 'copy' && d.f === 'mp4')) {
+				if (config.vaapiEnabled === true) {
+					let scale = "";
+					if (d.s) {
+						let [width, height] = d.s.split("x");
+						scale = `,scale_vaapi=w=${width}:h=${height}`;
+					}
+					args.push("-vf", `format=nv12|vaapi,hwupload,deinterlace_vaapi${scale}`);
+					args.push("-aspect", "16:9")
+				} else {
+					args.push('-filter:v', 'yadif');
 				}
-				args.push("-vf", `format=nv12|vaapi,hwupload,deinterlace_vaapi${scale}`);
-				args.push("-aspect", "16:9")
-			} else {
-				args.push('-filter:v', 'yadif');
 			}
 
 			if (d['c:v']) {
@@ -257,38 +214,34 @@ function main(avinfo) {
 			}
 
 			if (d.f === 'mp4') {
-				args.push('-movflags', 'frag_keyframe+empty_moov+faststart+default_base_moof');
+				if (d['c:v'] === 'copy' && d['c:a'] === 'copy') {
+					args.push('-movflags', 'frag_keyframe+faststart+default_base_moof');
+				} else {
+					args.push('-movflags', 'frag_keyframe+empty_moov+faststart+default_base_moof');
+				}
 			}
 
 			args.push('-y', '-f', d.f, 'pipe:1');
 
-			if (d['c:v'] === 'copy' && d['c:a'] === 'copy' && !d.t) {
-				var readStream = fs.createReadStream(program.recorded, range || {});
-				request.on('close', function() {
-					readStream.destroy();
-				});
-				readStream.pipe(response);
-			} else {
-				var ffmpeg = child_process.spawn('ffmpeg', args);
-				children.push(ffmpeg.pid);
-				util.log('SPAWN: ffmpeg ' + args.join(' ') + ' (pid=' + ffmpeg.pid + ')');
+			var ffmpeg = child_process.spawn('ffmpeg', args);
+			children.push(ffmpeg.pid);
+			util.log('SPAWN: ffmpeg ' + args.join(' ') + ' (pid=' + ffmpeg.pid + ')');
 
-				ffmpeg.stdout.pipe(response);
+			ffmpeg.stdout.pipe(response);
 
-				ffmpeg.stderr.on('data', function(d) {
-					util.log('#ffmpeg: ' + d);
-				});
+			ffmpeg.stderr.on('data', function(d) {
+				util.log('#ffmpeg: ' + d);
+			});
 
-				ffmpeg.on('exit', function() {
-					response.end();
-				});
+			ffmpeg.on('exit', function() {
+				response.end();
+			});
 
-				request.on('close', function() {
-					ffmpeg.stdout.removeAllListeners('data');
-					ffmpeg.stderr.removeAllListeners('data');
-					ffmpeg.kill('SIGKILL');
-				});
-			}
+			request.on('close', function() {
+				ffmpeg.stdout.removeAllListeners('data');
+				ffmpeg.stderr.removeAllListeners('data');
+				ffmpeg.kill('SIGKILL');
+			});
 
 			return;
 	}//<--switch
